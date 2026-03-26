@@ -71,14 +71,18 @@ public class OAuth2UserInfoAuthenticationScheme extends DaoAuthenticationScheme 
 	@Override
 	public Authenticated authenticate(Credentials credentials) throws ContextAuthenticationException {
 		
-		OAuth2TokenCredentials creds;
-		try {
-			creds = (OAuth2TokenCredentials) credentials;
+		// For non-OAuth2 credentials (e.g. UsernamePasswordCredentials from Basic Auth),
+		// fall back to DAO-based username/password authentication for backward compatibility.
+		if (!(credentials instanceof OAuth2TokenCredentials)) {
+			if (credentials instanceof org.openmrs.api.context.UsernamePasswordCredentials) {
+				org.openmrs.api.context.UsernamePasswordCredentials upCreds = (org.openmrs.api.context.UsernamePasswordCredentials) credentials;
+				User user = getContextDAO().authenticate(upCreds.getUsername(), upCreds.getPassword());
+				return new BasicAuthenticated(user, credentials.getAuthenticationScheme());
+			}
+			throw new ContextAuthenticationException("Unsupported credential type: " + credentials.getClass().getName());
 		}
-		catch (ClassCastException e) {
-			throw new ContextAuthenticationException("The credentials provided did not match those needed for the "
-			        + getClass().getSimpleName() + " authentication scheme.", e);
-		}
+		
+		OAuth2TokenCredentials creds = (OAuth2TokenCredentials) credentials;
 		
 		User user = getContextDAO().getUserByUsername(credentials.getClientName());
 		if (!creds.isServiceAccount()) {

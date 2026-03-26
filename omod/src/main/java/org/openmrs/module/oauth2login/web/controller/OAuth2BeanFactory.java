@@ -10,36 +10,24 @@
 package org.openmrs.module.oauth2login.web.controller;
 
 import java.io.IOException;
-import java.util.Arrays;
 import java.util.Properties;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.openmrs.module.oauth2login.PropertyUtils;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.security.oauth2.client.OAuth2ClientContext;
-import org.springframework.security.oauth2.client.OAuth2RestTemplate;
-import org.springframework.security.oauth2.client.token.grant.code.AuthorizationCodeResourceDetails;
-import org.springframework.security.oauth2.config.annotation.web.configuration.EnableOAuth2Client;
-import org.springframework.web.client.RestTemplate;
 
 /**
- * @see <a href="https://projects.spring.io/spring-security-oauth/docs/oauth2.html">Spring
- *      Documentation</a>
- * @see <a href="https://stackoverflow.com/a/27882337/321797">stackoverflow related question</a>
+ * Minimal bean factory — only registers oauth2.properties for the OAuth2ServiceAccountFilter
+ * (Bearer token validation). Spring Security OAuth2 client is removed to avoid Hibernate
+ * CacheManager conflicts with Raxa/Bahmni.
  */
-@EnableOAuth2Client
 @Configuration
 public class OAuth2BeanFactory {
 	
 	protected static final Log LOG = LogFactory.getLog(OAuth2BeanFactory.class);
 	
-	/**
-	 * Accessor to the properties files that contains the OAuth 2 client configuration: - client ID
-	 * - client secret - user authorization URI - access token URI and - user info URI
-	 */
 	@Bean(name = "oauth2.properties")
 	public Properties getOAuth2Properties() throws IOException {
 		return PropertyUtils.getOAuth2Properties();
@@ -49,25 +37,5 @@ public class OAuth2BeanFactory {
 	public String getOAuth2UserInfoUri() throws IOException {
 		Properties props = getOAuth2Properties();
 		return props.getProperty("userInfoUri");
-	}
-	
-	/**
-	 * The Spring REST template to transact with the OAuth 2 Resource Provider over HTTP.
-	 * 
-	 * @param props The OAuth 2 properties (client ID, client secret... etc).
-	 * @param oauth2Context Spring Security's client context as driven by @EnableOAuth2Client
-	 */
-	@Bean(name = "oauth2.restTemplate")
-	public RestTemplate getOAuth2RestTemplate(@Qualifier("oauth2.properties") Properties props,
-	        OAuth2ClientContext oauth2Context) {
-		
-		AuthorizationCodeResourceDetails resource = new AuthorizationCodeResourceDetails();
-		resource.setClientId(props.getProperty("clientId"));
-		resource.setClientSecret(props.getProperty("clientSecret"));
-		resource.setAccessTokenUri(props.getProperty("accessTokenUri"));
-		resource.setUserAuthorizationUri(props.getProperty("userAuthorizationUri"));
-		resource.setScope(Arrays.asList(props.getProperty("scope").trim().split(",")));
-		
-		return new OAuth2RestTemplate(resource, oauth2Context);
 	}
 }

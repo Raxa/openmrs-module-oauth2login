@@ -2,50 +2,17 @@
 <beans xmlns="http://www.springframework.org/schema/beans"
 	   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
 	   xmlns:context="http://www.springframework.org/schema/context"
-	   xmlns:security="http://www.springframework.org/schema/security"
-	   xmlns:beans="http://www.springframework.org/schema/beans"
 	   xsi:schemaLocation="http://www.springframework.org/schema/beans
   		    http://www.springframework.org/schema/beans/spring-beans-3.0.xsd
   		    http://www.springframework.org/schema/context
-  		    http://www.springframework.org/schema/context/spring-context-3.0.xsd
-  		    http://www.springframework.org/schema/security
-  		    http://www.springframework.org/schema/security/spring-security-3.2.xsd
-  		   ">
+  		    http://www.springframework.org/schema/context/spring-context-3.0.xsd">
 
-	<context:component-scan
-		base-package="org.openmrs.module.oauth2login.web.controller" />
-		
-	<!-- Start of Spring Security configuration -->
+	<!-- Only register OAuth2BeanFactory for oauth2.properties.
+	     Exclude all controllers and other beans to avoid Spring Security dependencies. -->
+	<context:component-scan base-package="org.openmrs.module.oauth2login.web.controller"
+						    use-default-filters="false">
+		<context:include-filter type="assignable"
+			expression="org.openmrs.module.oauth2login.web.controller.OAuth2BeanFactory"/>
+	</context:component-scan>
 
-	<security:http use-expressions="true">
-
-		<security:intercept-url pattern="/**"
-			access="permitAll" />
-
-		<security:form-login default-target-url="/index"
-			login-page="/oauth2login" />
-
-		<!-- TODO: Check whether the logout URL is still needed -->
-		<security:logout logout-url="/oauth2logout"
-			invalidate-session="true" delete-cookies="JSESSIONID" success-handler-ref="customLogoutSuccessHandler"/>
-		
-		<security:custom-filter
-			ref="oauth2ClientContextFilter" after="EXCEPTION_TRANSLATION_FILTER" />
-			
-	</security:http>
-
-	<beans:bean id="customLogoutSuccessHandler"
-				class="org.openmrs.module.oauth2login.web.controller.CustomLogoutSuccessHandler" />
-
-	<security:authentication-manager>
-		<security:authentication-provider>
-			<security:user-service>
-				<security:user name="user" password="user"
-					authorities="user" />
-			</security:user-service>
-		</security:authentication-provider>
-	</security:authentication-manager>
-
-  <!-- End of Spring Security configuration -->
-	
 </beans>
