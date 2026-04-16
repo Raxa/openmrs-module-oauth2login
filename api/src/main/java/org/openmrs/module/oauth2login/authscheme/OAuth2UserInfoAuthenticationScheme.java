@@ -11,6 +11,8 @@ package org.openmrs.module.oauth2login.authscheme;
 
 import static org.openmrs.module.oauth2login.OAuth2LoginConstants.AUTH_SCHEME_COMPONENT;
 
+import java.util.List;
+
 import org.apache.commons.lang.RandomStringUtils;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -83,17 +85,37 @@ public class OAuth2UserInfoAuthenticationScheme extends DaoAuthenticationScheme 
 		}
 		
 		OAuth2TokenCredentials creds = (OAuth2TokenCredentials) credentials;
-		
+
 		User user = getContextDAO().getUserByUsername(credentials.getClientName());
 		if (!creds.isServiceAccount()) {
 			if (user == null) {
+				// Fallback: preferred_username in Keycloak may be an email address while the
+				// OpenMRS username is different (e.g. Keycloak preferred_username="anjus3792@gmail.com"
+				// but OpenMRS username="Anju.Sharma"). Try matching by the JWT email claim before
+				// creating a brand-new account.
+				String email = creds.getUserInfo().getString(UserInfo.PROP_EMAIL);
+				if (email != null && !email.isEmpty()) {
+					List<User> usersByEmail = userService.getUsersByEmail(email);
+					if (usersByEmail != null && !usersByEmail.isEmpty()) {
+						user = usersByEmail.get(0);
+						log.warn("OAuth2 login: username lookup failed for '"
+						        + credentials.getClientName()
+						        + "', matched existing user by email '" + email
+						        + "' (OpenMRS username: '" + user.getUsername()
+						        + "'). Consider updating preferred_username in Keycloak to match.");
+						updateUser(user, creds.getUserInfo());
+						postProcessor.process(creds.getUserInfo());
+						return new BasicAuthenticated(user, credentials.getAuthenticationScheme());
+					}
+				}
+				// No existing user found by username or email — create a new account.
 				createUser(creds.getUserInfo());
 				// Get the user again after the user has been created
 				user = getContextDAO().getUserByUsername(credentials.getClientName());
 			} else {
 				updateUser(user, creds.getUserInfo());
 			}
-			
+
 			postProcessor.process(creds.getUserInfo());
 		}
 		return new BasicAuthenticated(user, credentials.getAuthenticationScheme());
