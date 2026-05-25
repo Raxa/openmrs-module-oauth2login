@@ -40,10 +40,15 @@ public class JwtUtils {
 	public static final String OAUTH_PROP_KEYS_URL = "keysUrl";
 	
 	public static PublicKey localPublicKey = null;
-	
+
 	public static boolean keysInitialized = false;
-	
+
 	public static JsonWebKeySet remoteJsonWebKeySet = null;
+
+	/** Minimum interval between JWKS refresh attempts (ms) to avoid stampede on a key the issuer no longer publishes. */
+	private static final long JWKS_REFRESH_MIN_INTERVAL_MS = 30_000L;
+
+	private static volatile long lastJwksRefreshAtMs = 0L;
 	
 	public static final String[] SUPPORTED_ALGORITHMS = new String[] { AlgorithmIdentifiers.RSA_USING_SHA256,
 	        AlgorithmIdentifiers.RSA_USING_SHA384, AlgorithmIdentifiers.RSA_USING_SHA512,
@@ -113,25 +118,44 @@ public class JwtUtils {
 		}
 		
 		if (remoteJsonWebKeySet != null) {
-			//Select the correct key from the key set based on the details in the JWT token and extract out the public key
 			JsonWebSignature jws = new JsonWebSignature();
 			jws.setAlgorithmConstraints(new AlgorithmConstraints(PERMIT, SUPPORTED_ALGORITHMS));
 			jws.setCompactSerialization(jwt);
 			VerificationJwkSelector keySelector = new VerificationJwkSelector();
 			JsonWebKey jwk = keySelector.select(jws, remoteJsonWebKeySet.getJsonWebKeys());
+
+			// On cache miss, the issuer may have rotated its signing keys after this JVM
+			// loaded its JWKS. Refresh once (rate-limited) and retry the lookup before
+			// declaring the token unverifiable.
+			if (jwk == null) {
+				String keysUrl = oauthProps.getProperty(OAUTH_PROP_KEYS_URL);
+				long now = System.currentTimeMillis();
+				if (StringUtils.isNotBlank(keysUrl) && (now - lastJwksRefreshAtMs) > JWKS_REFRESH_MIN_INTERVAL_MS) {
+					log.info("JWT 'kid' not in cached JWKS; refreshing from {}", keysUrl);
+					try {
+						String keys = HttpUtils.getJsonWebKeys(keysUrl.trim());
+						remoteJsonWebKeySet = new JsonWebKeySet(keys);
+						lastJwksRefreshAtMs = now;
+						jwk = keySelector.select(jws, remoteJsonWebKeySet.getJsonWebKeys());
+					}
+					catch (Exception e) {
+						log.warn("JWKS refresh failed: {}", e.toString());
+					}
+				}
+			}
+
 			if (jwk != null) {
 				jws.setKey(jwk.getKey());
-				//Do a quick check of the signature, an exception will be thrown in case of an unsupported algorithm
 				if (!jws.verifySignature()) {
 					throw new SignatureException("JWT signature does not match locally computed signature");
 				}
-				
+
 				return (PublicKey) jwk.getKey();
 			} else {
-				log.warn("Found no matching key to verify JWT tokens");
+				log.warn("Found no matching key to verify JWT tokens (after refresh attempt)");
 			}
 		}
-		
+
 		return null;
 	}
 	
