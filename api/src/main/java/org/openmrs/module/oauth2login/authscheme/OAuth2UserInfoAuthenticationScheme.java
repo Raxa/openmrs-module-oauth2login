@@ -11,6 +11,10 @@ package org.openmrs.module.oauth2login.authscheme;
 
 import static org.openmrs.module.oauth2login.OAuth2LoginConstants.AUTH_SCHEME_COMPONENT;
 
+import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.io.Serializable;
+
 import org.apache.commons.lang.RandomStringUtils;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -19,6 +23,7 @@ import org.openmrs.api.ProviderService;
 import org.openmrs.api.UserService;
 import org.openmrs.api.context.Authenticated;
 import org.openmrs.api.context.BasicAuthenticated;
+import org.openmrs.api.context.Context;
 import org.openmrs.api.context.ContextAuthenticationException;
 import org.openmrs.api.context.Credentials;
 import org.openmrs.api.context.Daemon;
@@ -35,20 +40,30 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Transactional
 @Component(AUTH_SCHEME_COMPONENT)
-public class OAuth2UserInfoAuthenticationScheme extends DaoAuthenticationScheme implements DaemonTokenAware {
+public class OAuth2UserInfoAuthenticationScheme extends DaoAuthenticationScheme implements DaemonTokenAware, Serializable {
 	
-	protected Log log = LogFactory.getLog(getClass());
+	/**
+	 * This bean ends up inside the serialized session payload: OpenmrsFilter stores the UserContext
+	 * in the HTTP session on every request, and UserContext holds a reference to its
+	 * AuthenticationScheme. With an externalized session store (Redisson/JDBC), session attributes
+	 * are serialized on write — a non-serializable scheme turns every request into a 500.
+	 * Spring/OpenMRS service handles and the post-processor are runtime wiring, not state: they are
+	 * transient and re-acquired after deserialization.
+	 */
+	private static final long serialVersionUID = 1L;
+	
+	protected transient Log log = LogFactory.getLog(getClass());
 	
 	private DaemonToken daemonToken;
 	
-	private AuthenticationPostProcessor postProcessor;
+	private transient AuthenticationPostProcessor postProcessor;
 	
 	@Autowired
-	private UserService userService;
+	private transient UserService userService;
 	
 	@Autowired
 	@Qualifier("providerService")
-	private ProviderService ps;
+	private transient ProviderService ps;
 	
 	public void setDaemonToken(DaemonToken daemonToken) {
 		this.daemonToken = daemonToken;
@@ -66,6 +81,25 @@ public class OAuth2UserInfoAuthenticationScheme extends DaoAuthenticationScheme 
 				// no post-processing by default
 			}
 		});
+	}
+	
+	private void readObject(ObjectInputStream in) throws IOException, ClassNotFoundException {
+		in.defaultReadObject();
+		log = LogFactory.getLog(getClass());
+		setPostProcessor(new AuthenticationPostProcessor() {
+			
+			@Override
+			public void process(UserInfo userInfo) {
+				// no post-processing by default (matches constructor wiring)
+			}
+		});
+	}
+	
+	private UserService getUserService() {
+		if (userService == null) {
+			userService = Context.getUserService();
+		}
+		return userService;
 	}
 	
 	@Override
@@ -112,7 +146,7 @@ public class OAuth2UserInfoAuthenticationScheme extends DaoAuthenticationScheme 
 	
 	private void updateUser(User user, UserInfo userInfo) {
 		try {
-			UpdateUserTask task = new UpdateUserTask(userService, userInfo);
+			UpdateUserTask task = new UpdateUserTask(getUserService(), userInfo);
 			Daemon.runInDaemonThread(task, daemonToken);
 		}
 		catch (Exception e) {
