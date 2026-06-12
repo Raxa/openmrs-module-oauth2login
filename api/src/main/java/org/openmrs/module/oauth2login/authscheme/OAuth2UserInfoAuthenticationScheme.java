@@ -33,12 +33,21 @@ import org.openmrs.module.DaemonTokenAware;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 
 /**
  * A scheme that authenticates with OpenMRS based on the 'username'.
  */
-@Transactional
+/*
+ * NOT @Transactional: class-level @Transactional makes Spring register a
+ * transaction PROXY as the authentication scheme, and that proxy — captured
+ * inside UserContext, which OpenmrsFilter stores in the HTTP session — drags
+ * TransactionInterceptor and a JVM-local Hibernate SessionFactory reference
+ * into the serialized session. Rehydrating such a session on another node
+ * fails with InvalidObjectException ("Could not find a SessionFactory").
+ * Transactionality is provided by the DAO/service layers themselves, exactly
+ * as for openmrs-core's UsernamePasswordAuthenticationScheme (which is also
+ * un-annotated and uses the same ContextDAO calls).
+ */
 @Component(AUTH_SCHEME_COMPONENT)
 public class OAuth2UserInfoAuthenticationScheme extends DaoAuthenticationScheme implements DaemonTokenAware, Serializable {
 	
